@@ -9,32 +9,32 @@ import warnings
 import datetime
 import os
 
-# Игнорируем предупреждения, которые могут возникать из sklearn, если данных недостаточно
-# (например, zero_division в precision_score, если нет предсказанных положительных)
-# или из pandas при работе с NaT/NaN.
-# Можно настроить более тонко, если это необходимо.
-# warnings.filterwarnings('ignore') # Закомментировано, чтобы видеть предупреждения о недостатке данных
-
-
 EPSILON = 1e-10
 
-# Хелпер для расчета KS статистики производительности
 def calculate_ks_performance(y_true, y_score):
     """
-    Рассчитывает KS статистику для оценки производительности модели.
+    Рассчитывает статистику Колмогорова-Смирнова (KS) для оценки разделяющей способности модели.
+
+    Args:
+        y_true (pd.Series): Pandas Series с фактическими значениями целевой переменной (0 или 1).
+        y_score (pd.Series): Pandas Series с предсказанными вероятностями или скорами модели.
+
+    Returns:
+        float: Значение статистики KS. Возвращает np.nan, если входные данные пусты
+               после удаления NaN, или если присутствует только один класс,
+               или если выборки для одного из классов пусты.
     """
+
     # Создаем DataFrame только с необходимыми колонками и удаляем строки с NaN
     df = pd.DataFrame({'y_true': y_true, 'y_score': y_score}).dropna()
 
     if df.empty:
-         #warnings.warn("calculate_ks_performance: Input data is empty after dropping NaN.")
          warnings.warn("calculate_ks_performance: Входные данные пусты после удаления NaN.")
          return np.nan
 
     df = df.sort_values(by='y_score')
 
     if df['y_true'].nunique() < 2:
-        # warnings.warn("KS performance requires both 0 and 1 classes to be present.")
         warnings.warn("Расчет KS производительности требует наличия классов 0 и 1.")
         return np.nan
 
@@ -42,7 +42,6 @@ def calculate_ks_performance(y_true, y_score):
     actual_1 = df[df['y_true'] == 1]['y_score']
 
     if len(actual_0) == 0 or len(actual_1) == 0:
-         # warnings.warn("KS performance requires non-empty samples for both classes.")
          warnings.warn("Расчет KS производительности требует непустых выборок для обоих классов.")
          return np.nan
 
@@ -58,8 +57,6 @@ def calculate_ks_performance(y_true, y_score):
     ks_stat = np.max(np.abs(cdf0 - cdf1))
 
     return ks_stat
-
-# --- Основная функция мониторинга производительности ---
 
 def calculate_performance_metrics(df_prod, score_col, actual_col, timestamp_col, evaluation_frequency='M', threshold=0.5):
     """
@@ -83,7 +80,7 @@ def calculate_performance_metrics(df_prod, score_col, actual_col, timestamp_col,
         pd.DataFrame: DataFrame с результатами мониторинга производительности по периодам.
                       Колонки: 'evaluation_period', а также колонки для каждой метрики.
     """
-    # Список для хранения результатов для каждого периода (в виде словарей)
+
     period_results_list = []
 
     # 1. Валидация и подготовка данных
@@ -207,7 +204,6 @@ def calculate_performance_metrics(df_prod, score_col, actual_col, timestamp_col,
         # Если данных достаточно (>= 2)
         print(f"  - Период: {period_name} ({len(y_true)} записей для расчета)")
 
-        # --- Расчет метрик ---
         # Расчет метрик, не зависящих от порога (AUC, Gini, LogLoss, Brier, KS) - требуют 2 класса
         if two_classes_required:
             try:
@@ -270,7 +266,6 @@ def calculate_performance_metrics(df_prod, score_col, actual_col, timestamp_col,
             else:
                  current_period_metrics[f'Accuracy_@{threshold}'] = np.nan
 
-
             # Precision, Recall, F1 требуют наличия положительного класса (1) в y_true
             if 1 in y_true.unique():
                # zero_division=0 устанавливает метрику в 0, если нет предсказанных положительных (Precision)
@@ -288,7 +283,6 @@ def calculate_performance_metrics(df_prod, score_col, actual_col, timestamp_col,
                current_period_metrics[f'Recall_@{threshold}'] = np.nan
                current_period_metrics[f'F1_@{threshold}'] = np.nan
 
-
         except Exception as e:
              warnings.warn(f"    Ошибка при расчете метрик, зависящих от порога, для {period_name}: {e}")
              current_period_metrics[f'Accuracy_@{threshold}'] = np.nan
@@ -298,7 +292,6 @@ def calculate_performance_metrics(df_prod, score_col, actual_col, timestamp_col,
 
         # Добавляем словарь с метриками для текущего периода в список
         period_results_list.append(current_period_metrics)
-
 
     # 4. Преобразование списка словарей в DataFrame
     results_df = pd.DataFrame(period_results_list)
@@ -321,7 +314,6 @@ def calculate_performance_metrics(df_prod, score_col, actual_col, timestamp_col,
                 other_rows_mask = ~overall_rows_mask
                 results_df.loc[other_rows_mask, 'evaluation_period'] = pd.to_datetime(results_df.loc[other_rows_mask, 'evaluation_period'], errors='coerce')
 
-
          # Определяем полный список метрик, которые должны быть в колонках
          expected_metric_cols = [
              'AUC', 'Gini', 'LogLoss', 'BrierScore', 'KS_Performance',
@@ -330,7 +322,6 @@ def calculate_performance_metrics(df_prod, score_col, actual_col, timestamp_col,
          # Добавляем колонку Note, если она присутствует в данных хоть раз
          if any('Note' in d for d in period_results_list):
               expected_metric_cols.append('Note')
-
 
          # Убеждаемся, что все ожидаемые колонки присутствуют, добавляя их с NaN, если отсутствуют
          # Это полезно, если какой-то период вообще не позволил посчитать определенную метрику
@@ -347,50 +338,30 @@ def calculate_performance_metrics(df_prod, score_col, actual_col, timestamp_col,
          ordered_cols_present = [col for col in ordered_cols if col in results_df.columns]
          results_df = results_df[ordered_cols_present]
 
-
     return results_df
 
 
-# --- Блок запуска скрипта мониторинга производительности (чтение из файла) ---
 if __name__ == '__main__':
-    print("--- Запуск скрипта мониторинга производительности (Чтение из файла) ---")
-
-    # --- НАСТРОЙКА ---
-    # Укажите путь к вашему CSV файлу с данными из продакшена
-    # Пример файла можно создать вручную или использовать сгенерированный ранее
-    # Структура файла должна содержать как минимум 3 колонки: timestamp, actual_value (0/1), score (0..1)
-    # Пример данных в файле:
-    # timestamp,score_col,actual_col
-    # 2023-01-15 10:30:00,0.85,1
-    # 2023-01-20 11:00:00,0.12,0
-    # 2023-02-10 09:15:00,0.67,1
-    # ...
-    prod_filepath = 'data_p2_predicted_with_timestamps.csv' # <-- УКАЖИТЕ ВАШ ПУТЬ К ФАЙЛУ
-    # Укажите названия колонок в вашем файле
-    score_column = 'probability_default' # <-- УКАЖИТЕ НАЗВАНИЕ КОЛОНКИ СО СКОРОМ (вероятность [0, 1])
-    actual_column = 'cb_person_default_on_file' # <-- УКАЖИТЕ НАЗВАНИЕ КОЛОНКИ С ФАКТИЧЕСКИМ ИСХОДОМ (0 или 1)
-    timestamp_column = 'timestamp' # <-- УКАЖИТЕ НАЗВАНИЕ КОЛОНКИ С МЕТКОЙ ВРЕМЕНИ (формат даты/времени)
+    prod_filepath = 'data_p2_predicted_with_timestamps.csv'
+    score_column = 'probability_default'
+    actual_column = 'cb_person_default_on_file'
+    timestamp_column = 'timestamp'
 
     # Параметры оценки
     eval_freq = 'M' # Периодичность оценки: 'overall' (вся выборка), 'D' (день), 'W' (неделя), 'M' (месяц), 'Q' (квартал), 'Y' (год)
     prediction_threshold = 0.5 # Порог для Accuracy, Precision, Recall, F1
 
-
-    # --- ПРОВЕРКА СУЩЕСТВОВАНИЯ ФАЙЛА ---
     if not os.path.exists(prod_filepath):
         raise FileNotFoundError(f"Файл данных из продакшена не найден: {prod_filepath}")
 
-    # --- ЗАГРУЗКА ДАННЫХ ---
     try:
         # При чтении CSV может понадобиться указать разделитель (sep=',' или ';') или кодировку (encoding='utf-8' и т.д.)
-        # Учитывая, что это CSV, разделитель чаще всего запятая.
         print(f"Загрузка данных из {prod_filepath}...")
         df_prod_data = pd.read_csv(prod_filepath)
         print(f"Загружено {len(df_prod_data)} строк из {prod_filepath}")
     except Exception as e:
         raise IOError(f"Ошибка при чтении CSV файла продакшена: {e}")
 
-    # --- ВЫПОЛНЕНИЕ МОНИТОРИНГА ПРОИЗВОДИТЕЛЬНОСТИ ---
     try:
         print("\nВыполнение расчета метрик производительности...")
         performance_results = calculate_performance_metrics(
@@ -405,7 +376,6 @@ if __name__ == '__main__':
         print("\n--- Результаты мониторинга производительности модели ---")
         print(performance_results)
 
-        # --- СОХРАНЕНИЕ РЕЗУЛЬТАТОВ ---
         output_csv_path = 'performance_monitoring_results.csv' # Путь для сохранения результатов
         if not performance_results.empty:
             try:

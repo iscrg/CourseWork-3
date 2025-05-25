@@ -1,19 +1,21 @@
 import pandas as pd
 import numpy as np
 from scipy.stats import ks_2samp, chi2_contingency
-from scipy.spatial.distance import jensenshannon # SciPy 1.2.0+
+from scipy.spatial.distance import jensenshannon
 import warnings
 
-# Настройка для обработки деления на ноль и логарифмов от нуля в PSI/JSD
-# Добавляем маленькое число epsilon, чтобы избежать ошибок log(0) или деления на 0
-# В более строгих реализациях может потребоваться более сложное правило обработки 0
 EPSILON = 1e-10
 
-# Функция для проверки, является ли серия категориальной или object (строковой)
-# Это соответствует тому, что мы считаем "категориальными" данными для Chi2, PSI, JSD
-
 def is_categorical_or_object_dtype(series):
-    """Checks if a pandas Series is of categorical or object dtype."""
+    """
+    Проверяет, является ли признак категориальным.
+
+    Args:
+        series (pd.Series): Pandas Series с данными по одному признаку.
+                                 Должна быть числовой или категориальной/object типа.
+    Returns:
+        bool: True, если признак категориальный и False, если некатегориальный
+    """
     return isinstance(series.dtype, pd.CategoricalDtype) or series.dtype == 'object'
 
 def calculate_psi(base_series, target_series, feature_name, n_bins=10):
@@ -55,8 +57,6 @@ def calculate_psi(base_series, target_series, feature_name, n_bins=10):
                           return {'metric_type': 'psi', 'metric_value': 0.0, 'note': 'Признак с постоянным значением'}
                      bins = np.linspace(bin_min, bin_max, n_bins + 1)
 
-
-            # Убедимся, что крайние бины включают мин/макс значения (добавляем небольшое смещение)
             bins[0] = bins[0] - EPSILON
             bins[-1] = bins[-1] + EPSILON
 
@@ -82,14 +82,12 @@ def calculate_psi(base_series, target_series, feature_name, n_bins=10):
             target_props = target_props.reindex(all_bins, fill_value=0)
 
             # Расчет PSI
-            # Добавляем EPSILON к знаменателю и числителю логарифма для устойчивости к нулям
             # Формула: sum((p_target - p_base) * log(p_target / p_base))
             psi_values = (target_props - base_props) * np.log((target_props + EPSILON) / (base_props + EPSILON))
             psi = psi_values.sum()
 
             return {'metric_type': 'psi', 'metric_value': psi}
 
-        # Используем новую функцию проверки типа
         elif (is_categorical_or_object_dtype(base_series) and
               is_categorical_or_object_dtype(target_series)):
             # Категориальный признак: каждая категория - бин
@@ -111,20 +109,16 @@ def calculate_psi(base_series, target_series, feature_name, n_bins=10):
             base_props = base_counts.reindex(all_categories, fill_value=0) / base_sum
             target_props = target_counts.reindex(all_categories, fill_value=0) / target_sum
 
-            # Расчет PSI (та же формула)
-            # Добавляем EPSILON к знаменателю и числителю логарифма для устойчивости
             psi_values = (target_props - base_props) * np.log((target_props + EPSILON) / (base_props + EPSILON))
             psi = psi_values.sum()
 
             return {'metric_type': 'psi', 'metric_value': psi}
 
         else:
-            # Неподдерживаемый тип данных для PSI
             warnings.warn(f"Неподдерживаемый тип данных для PSI на признаке '{feature_name}': {base_series.dtype}")
             return {'metric_type': 'psi', 'metric_value': np.nan, 'note': 'Неподдерживаемый тип'}
 
     except Exception as e:
-        # Общая обработка ошибок при расчете PSI
         warnings.warn(f"Ошибка при расчете PSI для признака '{feature_name}': {e}")
         return {'metric_type': 'psi', 'metric_value': np.nan, 'note': f'Ошибка: {e}'}
 
@@ -158,11 +152,9 @@ def calculate_ks_test(base_series, target_series, feature_name):
          return None
 
     try:
-        # Выполнение теста Колмогорова-Смирнова
         ks_statistic, p_value = ks_2samp(base_clean, target_clean)
         return {'metric_type': 'ks_stat', 'metric_value': ks_statistic, 'p_value': p_value}
     except Exception as e:
-        # Общая обработка ошибок при расчете KS теста
         warnings.warn(f"Ошибка при расчете теста Колмогорова-Смирнова для признака '{feature_name}': {e}")
         return {'metric_type': 'ks_stat', 'metric_value': np.nan, 'p_value': np.nan, 'note': f'Ошибка: {e}'}
 
@@ -182,7 +174,6 @@ def calculate_chi2_test(base_series, target_series, feature_name):
                       если тест неприменим (например, не категориальные данные, нулевые суммы по строкам/столбцам).
     """
     # Проверка, что данные подходят для Хи-квадрат теста (категориальные или object)
-    # Используем новую функцию проверки типа
     if not (is_categorical_or_object_dtype(base_series) and
             is_categorical_or_object_dtype(target_series)):
         warnings.warn(f"Критерий Хи-квадрат требует категориальных или строковых данных. Пропускаем признак '{feature_name}'.")
@@ -194,7 +185,6 @@ def calculate_chi2_test(base_series, target_series, feature_name):
     if len(all_categories) < 2:
          warnings.warn(f"Критерий Хи-квадрат требует минимум 2 категории. Пропускаем признак '{feature_name}'.")
          return None
-
 
     # Строим таблицы частот, включая категории, отсутствующие в одной из выборок (с 0)
     base_counts = base_series.value_counts().reindex(all_categories, fill_value=0)
@@ -215,11 +205,9 @@ def calculate_chi2_test(base_series, target_series, feature_name):
         chi2_statistic, p_value, dof, expected = chi2_contingency(contingency_table)
         return {'metric_type': 'chi2_stat', 'metric_value': chi2_statistic, 'p_value': p_value}
     except ValueError as ve:
-         # Ошибка может возникнуть при очень маленьких частотах
          warnings.warn(f"ValueError при расчете критерия Хи-квадрат для признака '{feature_name}': {ve}. Может произойти при очень малых количествах.")
          return {'metric_type': 'chi2_stat', 'metric_value': np.nan, 'p_value': np.nan, 'note': f'Ошибка ValueError: {ve}'}
     except Exception as e:
-        # Общая обработка ошибок при расчете Хи-квадрат теста
         warnings.warn(f"Ошибка при расчете критерия Хи-квадрат для признака '{feature_name}': {e}")
         return {'metric_type': 'chi2_stat', 'metric_value': np.nan, 'p_value': np.nan, 'note': f'Ошибка: {e}'}
 
@@ -267,7 +255,6 @@ def calculate_jsd(base_series, target_series, feature_name, n_bins=10):
             bins[0] = bins[0] - EPSILON
             bins[-1] = bins[-1] + EPSILON
 
-
             # Применяем биннинг к обеим выборкам, считаем частоты
             base_binned = pd.cut(base_series, bins=bins, right=True, include_lowest=True).value_counts().sort_index()
             target_binned = pd.cut(target_series, bins=bins, right=True, include_lowest=True).value_counts().sort_index()
@@ -294,10 +281,8 @@ def calculate_jsd(base_series, target_series, feature_name, n_bins=10):
             # Добавляем EPSILON перед передачей в scipy для устойчивости к нулям в массивах
             js_distance = jensenshannon(base_props.values + EPSILON, target_props.values + EPSILON)
 
-
             return {'metric_type': 'js_distance', 'metric_value': js_distance}
 
-        # Используем новую функцию проверки типа
         elif (is_categorical_or_object_dtype(base_series) and
               is_categorical_or_object_dtype(target_series)):
             # Категориальный признак: каждая категория - бин
@@ -307,7 +292,7 @@ def calculate_jsd(base_series, target_series, feature_name, n_bins=10):
             # Объединяем все уникальные категории
             all_categories = base_counts.index.union(target_counts.index)
 
-             # Рассчитываем доли в категориях, заполняя 0 для отсутствующих
+            # Рассчитываем доли в категориях, заполняя 0 для отсутствующих
             # Убеждаемся, что сумма частот > 0 перед делением
             base_sum = base_counts.sum()
             target_sum = target_counts.sum()
@@ -315,25 +300,20 @@ def calculate_jsd(base_series, target_series, feature_name, n_bins=10):
                  warnings.warn(f"Нулевое общее количество в базовой или целевой выборке для признака '{feature_name}'. Невозможно рассчитать JSD.")
                  return {'metric_type': 'js_distance', 'metric_value': np.nan, 'note': 'Нулевое общее количество в базовой или целевой выборке'}
 
-
             base_props = base_counts.reindex(all_categories, fill_value=0) / base_sum
             target_props = target_counts.reindex(all_categories, fill_value=0) / target_sum
-
 
             # Используем scipy функцию jensenshannon, она возвращает JS Distance (sqrt(JSD))
             # Добавляем EPSILON перед передачей в scipy для устойчивости к нулям в массивах
             js_distance = jensenshannon(base_props.values + EPSILON, target_props.values + EPSILON)
 
-
             return {'metric_type': 'js_distance', 'metric_value': js_distance}
 
         else:
-            # Неподдерживаемый тип данных для JSD
             warnings.warn(f"Неподдерживаемый тип данных для JSD на признаке '{feature_name}': {base_series.dtype}")
             return {'metric_type': 'js_distance', 'metric_value': np.nan, 'note': 'Неподдерживаемый тип'}
 
     except Exception as e:
-        # Общая обработка ошибок при расчете JSD
         warnings.warn(f"Ошибка при расчете JSD для признака '{feature_name}': {e}")
         return {'metric_type': 'js_distance', 'metric_value': np.nan, 'note': f'Ошибка: {e}'}
 
@@ -437,22 +417,16 @@ def check_data_drift(df_base, df_target):
     return pd.DataFrame(drift_results)
 
 if __name__ == "__main__":
-    # --- Пример использования с загрузкой данных из файлов ---
-
-    # Укажите пути к вашим файлам CSV (или другим форматам, используя соответствующую функцию pandas.read_*)
-    # Убедитесь, что файлы находятся в том же каталоге, что и скрипт,
-    # или укажите полный путь к файлам.
-    base_file_path = 'data_p1.csv'   # <-- ЗАМЕНИТЕ ЭТОТ ПУТЬ
-    target_file_path = 'data_p2.csv' # <-- ЗАМЕНИТЕ ЭТОТ ПУТЬ
+    base_file_path = 'data_p1.csv'
+    target_file_path = 'data_p2.csv'
 
     try:
-        # Загрузка данных из файлов
         print(f"Загрузка базовых данных из {base_file_path}...")
-        df_base = pd.read_csv(base_file_path) # Если у вас другой разделитель, укажите его, например: sep=';'
+        df_base = pd.read_csv(base_file_path)
         print("Базовые данные загружены успешно.")
 
         print(f"Загрузка целевых данных из {target_file_path}...")
-        df_target = pd.read_csv(target_file_path) # Аналогично для целевого файла
+        df_target = pd.read_csv(target_file_path)
         print("Целевые данные загружены успешно.")
 
         print("Размер базовых данных:", df_base.shape)
@@ -460,30 +434,19 @@ if __name__ == "__main__":
 
     except FileNotFoundError as e:
         print(f"Ошибка: Файл не найден - {e}. Пожалуйста, проверьте пути к файлам.")
-        # Можно выйти из программы или предпринять другие действия
         exit()
     except Exception as e:
         print(f"Произошла ошибка при загрузке данных из файлов: {e}")
-        # Можно выйти из программы или предпринять другие действия
         exit()
 
-    # Укажите имя вашей целевой переменной, чтобы исключить ее из проверки признаков
-    # Если у вас нет целевой переменной или вы хотите проверить все столбцы, закомментируйте или удалите следующие строки
-    target_column_name = 'cb_person_default_on_file' # <-- ЗАМЕНИТЕ ЭТО ИМЯ НА ВАШЕ ИЛИ УДАЛИТЕ/ЗАКОММЕНТИРУЙТЕ
+    target_column_name = 'cb_person_default_on_file'
 
-    # Исключаем целевую переменную из проверки дрейфа признаков, если она существует в DataFrame
-    # 'errors='ignore'' гарантирует, что код не упадет, если столбца нет
     df_base_features = df_base.drop(columns=[target_column_name], errors='ignore')
     df_target_features = df_target.drop(columns=[target_column_name], errors='ignore')
 
-
-    # 2. Выполните проверку дрейфа (автоматически определит признаки)
-    print("\nНачало проверки дрейфа данных...")
     drift_results_df = check_data_drift(df_base_features, df_target_features)
 
-    # 3. Выведите или сохраните результаты
     print("\n--- Результаты проверки дрейфа данных ---")
-    # Добавляем опцию вывода всех строк/столбцов, чтобы не обрезались в консоли
     pd.set_option('display.max_rows', None)
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', None)
@@ -491,8 +454,6 @@ if __name__ == "__main__":
 
     print(drift_results_df)
 
-    # Сохраните результаты в CSV файл, который можно загрузить в Yandex Object Storage
-    # или вставьте в базу данных, к которой подключен DataLens.
     output_csv_path = 'data_drift_results.csv'
     try:
         drift_results_df.to_csv(output_csv_path, index=False)
