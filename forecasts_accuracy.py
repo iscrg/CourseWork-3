@@ -1,4 +1,3 @@
-# script_performance_monitoring.py
 import pandas as pd
 import numpy as np
 from sklearn.metrics import (
@@ -8,8 +7,7 @@ from sklearn.metrics import (
 )
 import warnings
 import datetime
-import math
-import os # Для проверки существования файла
+import os
 
 # Игнорируем предупреждения, которые могут возникать из sklearn, если данных недостаточно
 # (например, zero_division в precision_score, если нет предсказанных положительных)

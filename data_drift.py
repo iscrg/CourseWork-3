@@ -491,7 +491,6 @@ if __name__ == "__main__":
 
     print(drift_results_df)
 
-
     # Сохраните результаты в CSV файл, который можно загрузить в Yandex Object Storage
     # или вставьте в базу данных, к которой подключен DataLens.
     output_csv_path = 'data_drift_results.csv'
